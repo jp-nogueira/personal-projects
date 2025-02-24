@@ -1,0 +1,234 @@
+---
+title: "Bolsa Família"
+author: "João Pedro Nogueira"
+date: ',2025'
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+library(tidyverse)
+library(readxl)
+```
+
+We want to check if the ***Bolsa Família*** CCT program affects labor-market outcomes. To do so, we'll use data from the ***PNAD***, which is is a survey conducted annually by IBGE since 1981. PNAD investigates several characteristics of the population such as household composition, education, labor, income and fertility. Moreover, almost every year, there is an investigation of an additional topic, such as education, health, professional training and food security.
+
+Our data is from PNAD's sample in 2006. The data is available in two files. The first file, "PES2006.txt", contains individual-level data, while the second file, "DOM2006.txt" contains household-level data. To be able to read these files, we'll use the Dictionary files that IBGE provides alongside the data.
+
+```{r}
+dic_pessoas <- read_xls("2006\\Dicionário\\Dicionário de variáveis de pessoas - 2006.xls",skip=4,col_names = F) %>%
+  dplyr::select(c(1,2,3,5)) %>%
+  na.omit()
+names(dic_pessoas) <- c("inicio","tamanho","variavel","descricao") #atribui nomes para as colunas
+dic_pessoas$inicio <- as.integer(dic_pessoas$inicio)
+
+posicoes <- fwf_positions(start=dic_pessoas$inicio,end = dic_pessoas$inicio + (dic_pessoas$tamanho - 1), col_names = dic_pessoas$variavel) #Designa as posições de cada variável
+df_p <- read_fwf("2006\\Dados\\PES2006.txt",col_positions = posicoes,col_types = cols(.default = "d"))
+
+rm(posicoes)
+
+head(df_p)
+
+dic_domicilios <- read_xls("2006\\Dicionário\\Dicionário de variáveis de domicílios - 2006.xls",skip=4,col_names = F) %>%
+  dplyr::select(c(1,2,3,5)) %>%
+  na.omit()
+names(dic_domicilios) <- c("inicio","tamanho","variavel","descricao")
+dic_domicilios$inicio <- as.integer(dic_domicilios$inicio)
+
+posicoes <- fwf_positions(start=dic_domicilios$inicio,end = dic_domicilios$inicio + (dic_domicilios$tamanho - 1), col_names = dic_domicilios$variavel) #Designa as posições de cada variável
+df_d <- read_fwf("2006\\Dados\\DOM2006.txt",col_positions = posicoes,col_types = cols(.default = "d"))
+
+rm(posicoes)
+
+head(df_d)
+
+```
+
+We've accessed the data, but the variables have very generic names and it's hard to understand what each of them represent. So, let's add descriptive labels to them. We'll once again use the data provided in the Dictionaries.
+
+```{r}
+library(Hmisc)
+
+lookup <- data.frame(code=dic_pessoas$variavel,label=dic_pessoas$descricao,stringsAsFactors = F)
+
+for (i in 1:length(colnames(df_p))) {
+  if(!is.na(match(colnames(df_p),lookup$code)[i])){
+    Hmisc::label(df_p[[i]]) <- lookup$label[(match(colnames(df_p),lookup$code))[i]]
+  }
+}
+
+rm(lookup,i)
+
+lookup <- data.frame(code=dic_domicilios$variavel,label=dic_domicilios$descricao,stringsAsFactors = F)
+
+for (i in 1:length(colnames(df_d))) {
+  if(!is.na(match(colnames(df_d),lookup$code)[i])){
+    Hmisc::label(df_d[[i]]) <- lookup$label[(match(colnames(df_d),lookup$code))[i]]
+  }
+}
+
+rm(lookup,i)
+
+#view(df_d)
+#view(df_p)
+```
+
+Much better now. Let's merge our data frames. To make things simpler, we'll limit our observations only to those in the state of Minas Gerais.
+
+```{r}
+df <- full_join(df_d,df_p,by = c("V0101","UF","V0102","V0103")) %>%
+  dplyr::filter(UF==31)
+
+rm(df_d,df_p)
+
+head(df)
+```
+
+Then, we'll create new variables and modify existing ones, so our analysis is more precise.
+
+```{r}
+
+df <- df %>%
+  dplyr::mutate("bolsa_familia"=ifelse(V2403==1,1,0)) %>% #bolsa família dummy
+  dplyr::mutate("idade" = ifelse(V8005!=999,V8005,NA)) %>%
+  dplyr::mutate("idade_sq" = idade^2) %>%
+  dplyr::mutate("escolaridade"=ifelse(V4703!=17,V4703-1,NA)) %>% #years of schooling
+  dplyr::mutate("escolaridade_sq"=escolaridade^2) %>%
+  dplyr::mutate("homem"=ifelse(V0302==2,1,0)) %>% #male dummy
+  dplyr::mutate("negro"=ifelse(V0404==4|V0404==8,1,0)) %>% #black dummy
+  dplyr::mutate("casal"=ifelse(V4723==1|V4723==2|V4723==3|V4723==4|V4723==5,1,0)) %>% #married dummy
+  dplyr::mutate("trabalha"=ifelse(V9001==1,1,0)) %>% #employed dummy
+  dplyr::mutate("area_rural"=ifelse(V4728==4|V4728==5|V4728==6|V4728==7|V4728==8,1,0)) #rural worker dummy
+
+#number of hours worked in the past week
+df <- df %>% 
+  mutate("horas_trabalhadas" = rowSums(select(., V0713, V9058, V9101, V9105) %>% 
+                                 mutate(across(everything(), ~ ifelse(. <= 98, ., 0))), 
+                               na.rm = T))
+
+#household income without the head of the household
+df <- df %>%
+  mutate(
+    "rendimento_total" = rowSums(
+      select(., V4721, V4719) %>%
+        mutate(across(everything(), ~ ifelse(. < 999999999999, ., 0))), 
+      na.rm = TRUE
+    ),
+    "renda_lchefepc" = ifelse(V4741 > 0, rendimento_total / V4741, NA)
+  )
+
+#Number of children under/over 14
+df <- df %>%
+  group_by(V0102, V0103) %>%
+  mutate(
+    "filhos_menos_14" = sum(V0402 == 3 & idade < 14, na.rm = TRUE),
+    "filhos_mais_14" = sum(V0402 == 3 & idade > 14, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+#Keep only observations for head of household and spouses
+filtered_df <- df %>%
+  filter(V0401==1 | V0401==2)
+
+```
+
+Now, let's start off by running an OLS model, with individuals that worked more than 0 hours over the past week.
+
+```{r}
+library(lmtest)
+library(sandwich)
+library(texreg)
+
+
+filtered_df <- filtered_df %>%
+  filter(horas_trabalhadas>0)
+
+ols <- lm(horas_trabalhadas ~ bolsa_familia + idade + idade_sq + escolaridade + escolaridade_sq + homem + negro + casal + area_rural + renda_lchefepc, data = filtered_df)
+
+screenreg(coeftest(ols,vcov. = vcovHC(ols,type="HC3")))
+
+```
+
+The results seem to indicate that recipients of the Bolsa Família program work less hours than those that do not participate in the program. However, the issue is that if Bolsa Família does indeed reduce the number of hours worked, if we only look at people who have worked more than zero hours, the effect we are capturing may have been underestimated, since it is possible that people who previously worked a few hours now work zero hours. At the same time, if Bolsa Família causes people who were unemployed to get jobs that consist of fewer hours than the average, then we would observe a negative effect, when in fact there is none. The necessary hypothesis for the captured effect to be true is that Bolsa Família does not affect participation in the labor market (i.e. it does not cause the unemployed to get jobs and vice versa). If it does affect participation in the labor market, then it's possible that our result is biased due to sample selection issues.
+
+Let's run the model again, but this time, we'll keep all household members.
+
+```{r}
+
+df <- df %>%
+  dplyr::filter(horas_trabalhadas>0)
+
+ols2 <- lm(horas_trabalhadas ~ bolsa_familia + idade + idade_sq + escolaridade + escolaridade_sq + homem + negro + casal + area_rural + renda_lchefepc, data = df)
+
+screenreg(coeftest(ols2,vcov. = vcovHC(ols2,type="HC3")))
+
+```
+
+The coefficient got smaller, but it's still negative. It's fair to assume we still have some sort of selection bias. So, let's estimate a Heckman Model, which is designed to correct this type of problem.
+
+```{r}
+library(sampleSelection)
+
+# Equação de seleção (participação no mercado de trabalho)
+selection_eq <- trabalha ~ filhos_menos_14 + filhos_mais_14 + idade + idade_sq +
+                escolaridade + escolaridade_sq + homem + negro + casal + area_rural +
+                renda_lchefepc
+
+# Equação de resultado (horas trabalhadas)
+outcome_eq <- horas_trabalhadas ~ bolsa_familia + idade + idade_sq + escolaridade +
+               escolaridade_sq + homem + negro + casal + area_rural + renda_lchefepc
+
+heckman_model <- selection(selection_eq, outcome_eq, data = df, method = "2step")
+
+screenreg(heckman_model,digits=3)
+```
+
+Once again, the coefficient is negative. However, note that the Inverse Mills Ratio suggests that we indeed have sample selection bias in our model. So, to make sure that our results are reliable, we'll run a Propensity Score Matching algorithm to estimate the Average Treatment Effect on the Treated (ATT).
+
+```{r}
+library(MatchIt)
+library(MatchItSE)
+
+set.seed(231101256)
+
+DF <- df %>% dplyr::select(81,c(426:439)) %>% na.omit()
+DF[sapply(DF, is.character)] <- lapply(DF[sapply(DF, is.character)], 
+                                       as.factor)
+
+psm <- matchit(bolsa_familia ~ idade + idade_sq + escolaridade + escolaridade_sq + homem + negro + casal + area_rural + renda_lchefepc,data=DF,method="nearest",link="probit",distance="glm",m.order="largest",ratio=5,discard="both",replace=T)
+
+summary(psm)
+
+matched_data <- match.data(psm)
+
+att_value <- att(psm,DF$trabalha)
+se_value <- abadie_imbens_se(psm,DF$trabalha)
+t_stat <- att_value/se_value
+p_val <- 2*pt(-abs(t_stat), df=length(psm)-1)
+
+cbind(att_value,se_value,p_val)
+
+```
+
+Our ATT is 0.018. Assuming that, conditional on the covariates included in the matching model, treatment assignment is independent of potential outcomes, and that there is overlap between treated and controls, we can conclude that this result is valid.
+
+```{r}
+#Checking if Matching worked
+
+library(cobalt)
+
+summary_match <- summary(psm,un=T)
+print(summary_match)
+
+love.plot(
+  psm,
+  stats = "mean.diffs",   # Mostrar diferenças de médias padronizadas
+  threshold = 0.1         # Limite para diferenças aceitáveis (geralmente 0.1)
+)
+
+plot(psm, type = "hist", which.xs = NULL)
+```
+
