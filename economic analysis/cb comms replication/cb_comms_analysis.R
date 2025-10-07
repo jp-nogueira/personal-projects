@@ -25,15 +25,79 @@ group_var <- "treatment_group"
 
 # regression specifications
 
+comparisons <- list(
+  "1_vs_2" = list(group_var = "group_2", groups = c(1, 2)),
+  "1_vs_3" = list(group_var = "group_3", groups = c(1, 3)),
+  "2_vs_4" = list(group_var = "group_4", groups = c(2, 4)),
+  "3_vs_4" = list(group_var = "group_4", groups = c(3, 4))
+)
 
-# color and size formatting for plots
+formulas <- list(
+  "NoControls" = ~ .x ~ group_var_placeholder,
+  "WithControls" = ~ .x ~ group_var_placeholder + age + proxy_household_income + studied_economics
+)
 
 
 #***************************************************************************************************
-# TABLES AND FIGURES ####
+# TABLES ####
 #***************************************************************************************************
 
 #### Table 2 ####
 
 descriptive_stats <- calc_stats(df %>% dplyr::filter(attention_check==1),columns,group_var)
 
+
+#### Table 3 ####
+
+table_3 <- map_dfr(names(comparisons), function(name) {
+  comp <- comparisons[[name]]
+  run_models(df, comp$groups, comp$group_var, name)
+})
+
+#### Table A.1 ####
+
+table_a1 <- map_dfr(names(comparisons), function(name) {
+  comp <- comparisons[[name]]
+  run_models_ols(df, comp$groups, comp$group_var, name)
+})
+
+#### Table A.2 ####
+
+table_a2 <- map_dfr(names(comparisons), function(name) {
+  comp <- comparisons[[name]]
+  run_models_median(df, comp$groups, comp$group_var, name)
+})
+
+#### Table A.3 ####
+
+table_a3 <- map_dfr(names(comparisons), function(name) {
+  comp <- comparisons[[name]]
+  run_models_trimmed(df, comp$groups, comp$group_var, name)
+})
+
+#### Table 4 ####
+
+table_4 <- map_dfr(names(comparisons), function(name) {
+  comp <- comparisons[[name]]
+  run_models_probit(df, comp$groups, comp$group_var, name)
+})
+
+#***************************************************************************************************
+# FIGURES ####
+#***************************************************************************************************
+
+#### Figure A1 #####
+
+df %>%
+  filter(attention_check==1) %>%
+  ggplot(aes(x=delta_expectations,group = treatment_group,fill=as.factor(treatment_group))) +
+  geom_density(adjust=1.5,alpha=0.8) +
+  scale_fill_paletteer_d("ggsci::default_jama",name="Treatment Group") +
+  labs(x = "Revision of Inflation Expectation",
+       y = "Density") +
+  theme(panel.background = element_rect(fill="white"),
+        axis.line.x = element_line(color="black",linewidth = 0.6),
+        axis.line.y = element_line(color="black",linewidth = 0.6),
+        legend.position = c(0.8,0.8),
+        axis.text = element_text(color="black")
+  )
