@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Tue Oct 14 13:37:29 2025
+
+@author: JP Nogueira
+"""
+
 import pandas as pd
 import numpy as np
 import nltk
@@ -7,7 +13,7 @@ from sentence_transformers import SentenceTransformer, util
 # Download sentence tokenizer (only needed once)
 nltk.download('punkt')
 
-def bert_extractive_summary_df(df, text_column='text', n_sentences=5):
+def bert_extractive_summary_df(df, text_column='text', n_sentences=5,output_path='summary.txt'):
     """
     Generate an extractive summary from a DataFrame, where each row is a separate text.
     Uses 'all-MiniLM-L6-v2', an English-optimized BERT model for sentence similarity.
@@ -54,15 +60,19 @@ def bert_extractive_summary_df(df, text_column='text', n_sentences=5):
 
     # 9. Combine selected sentences into a final summary
     summary = " ".join(selected_sentences)
-    return summary
 
+    # 10. Save summary to a text file
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(summary)
+
+    print(f" Summary successfully saved to: {output_path}")
+    return summary
 
 # Example usage
 if __name__ == "__main__":
-    df = pd.read_excel("C:\\path\\to\\test.xlsx")
+    df = pd.read_excel("C:\\Users\\JP Nogueira\\OneDrive - unb.br\\Mestrado\\Dissertação\\ATS\\test.xlsx")
     df = df.iloc[:2]
     
 
-    summary = bert_extractive_summary_df(df, text_column='Text', n_sentences=10)
-    print("Extractive Summary:\n", summary)
-
+    summary = bert_extractive_summary_df(df, text_column='Text', n_sentences=10,output_path="C:\\Users\\JP Nogueira\\OneDrive - unb.br\\Mestrado\\Dissertação\\ATS\\summary.txt")
+    print("\nExtractive Summary:\n", summary)
