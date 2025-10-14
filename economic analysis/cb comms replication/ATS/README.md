@@ -1,0 +1,1 @@
+The Python script in this directory is an attempt at recreating the script used to generate the summary used in the paper - which I unfortunately lost access to. The resulting text isn't the exact same that was used in the paper, however it has used many of the same sentences as the original version. 
