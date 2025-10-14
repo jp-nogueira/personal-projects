@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Oct 14 13:37:29 2025
-
-@author: JP Nogueira
-"""
-
 import pandas as pd
 import numpy as np
 import nltk
@@ -39,7 +33,7 @@ def bert_extractive_summary_df(df, text_column='text', n_sentences=5):
     if len(sentences) == 0:
         return ""
 
-    # 3. Load the original BERT model for sentence embeddings
+    # 3. Load the BERT model for sentence embeddings
     model = SentenceTransformer('all-MiniLM-L6-v2')
 
     # 4. Generate embeddings for each sentence
@@ -65,9 +59,10 @@ def bert_extractive_summary_df(df, text_column='text', n_sentences=5):
 
 # Example usage
 if __name__ == "__main__":
-    df = pd.read_excel("C:\\Users\\JP Nogueira\\OneDrive - unb.br\\Mestrado\\Dissertação\\ATS\\test.xlsx")
+    df = pd.read_excel("C:\\path\\to\\test.xlsx")
     df = df.iloc[:2]
     
 
     summary = bert_extractive_summary_df(df, text_column='Text', n_sentences=10)
     print("Extractive Summary:\n", summary)
+
