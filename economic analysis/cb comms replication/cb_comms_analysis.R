@@ -101,3 +101,32 @@ df %>%
         legend.position = c(0.8,0.8),
         axis.text = element_text(color="black")
   )
+
+#### Figure 4 ####
+
+plt_data <- df %>%
+  dplyr::select(c(6:10))
+means <- colMeans(plt_data)
+plt_df <- data.frame(
+  x = c("Official Sources","Traditional Media","Social Media","Friends","None"),
+  y = means*100,
+  row.names = NULL
+)
+
+ggplot(plt_df, aes(x = x, y = y)) +
+  geom_bar(stat = "identity", fill = "#003366", color = "#003366", width = 0.6) +
+  labs(title = " ",
+       x = "Source used",
+       y = "Percentage") +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major.y = element_line(color = "#0d4073", linewidth = 0.3),
+    axis.ticks.length = unit(0, "mm"),
+    axis.title.x = element_text(face="bold"),
+    axis.title.y = element_text(size=10),
+    axis.text.y  = element_text(color="#0d4073"),
+    axis.line.x = element_line(color="black",linewidth = 0.6)
+  )
+
+rm(plt_df,plt_data,means)
