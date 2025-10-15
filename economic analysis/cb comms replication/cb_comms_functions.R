@@ -17,15 +17,10 @@ if (!installed) install.packages("sandwich")
 installed <- require(quantreg)
 if (!installed) install.packages("quantreg")
 installed <- require(knitr)
-if (!installed) install.packages("knitr")
-installed <- require(texreg)
-if (!installed) install.packages("texreg")
-installed <- require(kableExtra)
-if (!installed) install.packages("kableExtra")
-installed <- require(paletteer)
 if (!installed) install.packages("paletteer")
 installed <- require(ggpubr)
 if (!installed) install.packages("ggpubr")
+
 
 #***************************************************************************************************
 # Helper functions ####
@@ -101,24 +96,27 @@ calc_stats <- function(data, cols, group_var) {
 run_models <- function(data, groups, group_var, comparison_name) {
   subset_condition <- data$treatment_group %in% groups & data$attention_check == 1
   
-  # Formulas with correct group var substituted
   f_nocontrols <- as.formula(paste("delta_expectations ~", group_var))
-  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + proxy_household_income + studied_economics"))
+  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + male + proxy_household_income + studied_economics"))
   
-  models <- list(
-    NoControls = rlm(f_nocontrols, data = data, subset = subset_condition),
-    WithControls = rlm(f_controls, data = data, subset = subset_condition)
-  )
-  
-  results <- map(models, ~{
-    ct <- coeftest(.x, vcov = vcovHC(.x, type = "HC3"))
+  extract_stats <- function(m) {
+    ct <- coeftest(m, vcov = vcovHC(m, type = "HC3"))
     tidy_ct <- broom::tidy(ct) %>% filter(term == group_var)
-    tidy_ct[, c("estimate", "std.error", "p.value")]
-  })
+    tibble(
+      estimate = tidy_ct$estimate,
+      std.error = tidy_ct$std.error,
+      p.value = tidy_ct$p.value
+    )
+  }
   
-  bind_cols(results) %>%
-    rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
-    mutate(comparison = comparison_name, .before = 1)
+  m_nocontrols <- rlm(f_nocontrols, data = data, subset = subset_condition)
+  m_controls   <- rlm(f_controls, data = data, subset = subset_condition)
+  
+  bind_cols(
+    extract_stats(m_nocontrols) %>% rename_with(~ paste0(.x, "_nocontrols")),
+    extract_stats(m_controls)   %>% rename_with(~ paste0(.x, "_controls"))
+  ) %>%
+    mutate(comparison = comparison_name, method = "Huber", .before = 1)
 }
 
 #' Helper function to run pairs of OLS regressions and extract results
@@ -130,56 +128,57 @@ run_models <- function(data, groups, group_var, comparison_name) {
 run_models_ols <- function(data, groups, group_var, comparison_name) {
   subset_condition <- data$treatment_group %in% groups & data$attention_check == 1
   
-  # Define formulas
   f_nocontrols <- as.formula(paste("delta_expectations ~", group_var))
-  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + proxy_household_income + studied_economics"))
+  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + male + proxy_household_income + studied_economics"))
   
-  models <- list(
-    NoControls = lm(f_nocontrols, data = data, subset = subset_condition),
-    WithControls = lm(f_controls, data = data, subset = subset_condition)
-  )
-  
-  results <- map(models, ~{
-    ct <- coeftest(.x, vcov = vcovHC(.x, type = "HC3"))
+  extract_stats <- function(m) {
+    ct <- coeftest(m, vcov = vcovHC(m, type = "HC3"))
     tidy_ct <- broom::tidy(ct) %>% filter(term == group_var)
-    tidy_ct[, c("estimate", "std.error", "p.value")]
-  })
+    tibble(
+      estimate = tidy_ct$estimate,
+      std.error = tidy_ct$std.error,
+      p.value = tidy_ct$p.value
+    )
+  }
   
-  bind_cols(results) %>%
-    rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
-    mutate(comparison = comparison_name, .before = 1)
+  m_nocontrols <- lm(f_nocontrols, data = data, subset = subset_condition)
+  m_controls   <- lm(f_controls, data = data, subset = subset_condition)
+  
+  bind_cols(
+    extract_stats(m_nocontrols) %>% rename_with(~ paste0(.x, "_nocontrols")),
+    extract_stats(m_controls)   %>% rename_with(~ paste0(.x, "_controls"))
+  ) %>%
+    mutate(comparison = comparison_name, method = "OLS", .before = 1)
 }
 
-#' Helper function to run pairs of Median regressions and extract results
-#' 
-#' @param data Data to run the regression
-#' @param groups Determines which groups are being compared in the regression
-#' @param group_var Determines which group is the Treatment group
-#' @param comparison_name Names the groups being compared in the regressions
 run_models_median <- function(data, groups, group_var, comparison_name) {
   subset_condition <- data$treatment_group %in% groups & data$attention_check == 1
   
-  # Define formulas
   f_nocontrols <- as.formula(paste("delta_expectations ~", group_var))
-  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + proxy_household_income + studied_economics"))
+  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + male + proxy_household_income + studied_economics"))
   
-  # Estimate median (quantile) regressions
-  models <- list(
-    NoControls = rq(f_nocontrols, tau = 0.5, data = data, subset = subset_condition),
-    WithControls = rq(f_controls, tau = 0.5, data = data, subset = subset_condition)
-  )
+  extract_stats <- function(m) {
+    set.seed(1331)
+    s <- summary(m, se = "boot")
+    coefs <- as.data.frame(s$coefficients)
+    row <- coefs[rownames(coefs) == group_var, , drop = FALSE]
+    tibble(
+      estimate = row[1, "Value"],
+      std.error = row[1, "Std. Error"],
+      p.value = row[1, "Pr(>|t|)"]
+    )
+  }
   
-  # Extract coefficients, SEs, and p-values (robust)
-  results <- map(models, ~{
-    ct <- summary(.x, se = "boot")  # use bootstrap SEs for quantile regression
-    tidy_ct <- broom::tidy(ct) %>% filter(term == group_var)
-    tidy_ct[, c("estimate", "std.error", "p.value")]
-  })
+  m_nocontrols <- rq(f_nocontrols, tau = 0.5, data = data, subset = subset_condition)
+  m_controls   <- rq(f_controls, tau = 0.5, data = data, subset = subset_condition)
   
-  bind_cols(results) %>%
-    rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
-    mutate(comparison = comparison_name, .before = 1)
+  bind_cols(
+    extract_stats(m_nocontrols) %>% rename_with(~ paste0(.x, "_nocontrols")),
+    extract_stats(m_controls)   %>% rename_with(~ paste0(.x, "_controls"))
+  ) %>%
+    mutate(comparison = comparison_name, method = "Median", .before = 1)
 }
+
 
 #' Helper function to run pairs of trimmed OLS regressions and extract results
 #' 
@@ -200,24 +199,32 @@ run_models_trimmed <- function(data, groups, group_var, comparison_name) {
   
   # Define formulas
   f_nocontrols <- as.formula(paste("delta_expectations ~", group_var))
-  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + proxy_household_income + studied_economics"))
+  f_controls <- as.formula(paste("delta_expectations ~", group_var, "+ age + male + proxy_household_income + studied_economics"))
   
   # Estimate OLS regressions on trimmed sample
-  models <- list(
-    NoControls = lm(f_nocontrols, data = df_trim),
-    WithControls = lm(f_controls, data = df_trim)
-  )
+  model_nocontrols <- lm(f_nocontrols, data = df_trim)
+  model_controls   <- lm(f_controls, data = df_trim)
   
-  # Extract coefficients, SEs, and p-values
-  results <- map(models, ~{
-    ct <- coeftest(.x, vcov = vcovHC(.x, type = "HC3"))
+  # Function to extract stats
+  extract_stats <- function(model, group_var) {
+    ct <- coeftest(model, vcov = vcovHC(model, type = "HC3"))
     tidy_ct <- broom::tidy(ct) %>% filter(term == group_var)
     tidy_ct[, c("estimate", "std.error", "p.value")]
-  })
+  }
   
-  bind_cols(results) %>%
-    rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
-    mutate(comparison = comparison_name, .before = 1)
+  # Extract and label correctly
+  res_nocontrols <- extract_stats(model_nocontrols, group_var) %>%
+    rename_with(~ paste0(.x, "_nocontrols"))
+  
+  res_controls <- extract_stats(model_controls, group_var) %>%
+    rename_with(~ paste0(.x, "_controls"))
+  
+  # Combine both and add labels
+  bind_cols(
+    tibble(comparison = comparison_name),
+    res_nocontrols,
+    res_controls
+  )
 }
 
 #' Helper function to run pairs of Probit regressions and extract results
@@ -231,25 +238,35 @@ run_models_probit <- function(data, groups, group_var, comparison_name) {
   
   # Define formulas
   f_nocontrols <- as.formula(paste("closer_to_target ~", group_var))
-  f_controls <- as.formula(paste("closer_to_target ~", group_var, "+ age + proxy_household_income + studied_economics"))
+  f_controls   <- as.formula(paste("closer_to_target ~", group_var, 
+                                   "+ age + male + proxy_household_income + studied_economics"))
   
-  # Estimate probit models
-  models <- list(
-    NoControls = glm(f_nocontrols, family = binomial(link = "probit"), data = data, subset = subset_condition),
-    WithControls = glm(f_controls, family = binomial(link = "probit"), data = data, subset = subset_condition)
-  )
+  # Fit models
+  model_nocontrols <- glm(f_nocontrols, family = binomial(link = "probit"),
+                          data = data, subset = subset_condition)
+  model_controls   <- glm(f_controls, family = binomial(link = "probit"),
+                          data = data, subset = subset_condition)
   
-  # Extract coefficient, robust SE, and p-value for group_var
-  results <- map(models, ~{
-    ct <- coeftest(.x, vcov = vcovHC(.x, type = "HC1"))
+  # Function to extract coefficient, robust SE, and p-value
+  extract_stats <- function(model, group_var) {
+    ct <- coeftest(model, vcov = vcovHC(model, type = "HC1"))
     tidy_ct <- broom::tidy(ct) %>% filter(term == group_var)
     tidy_ct[, c("estimate", "std.error", "p.value")]
-  })
+  }
   
-  bind_cols(results) %>%
-    rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
-    mutate(comparison = comparison_name, .before = 1)
-
+  # Extract results for each model and label properly
+  res_nocontrols <- extract_stats(model_nocontrols, group_var) %>%
+    rename_with(~ paste0(.x, "_nocontrols"))
+  
+  res_controls <- extract_stats(model_controls, group_var) %>%
+    rename_with(~ paste0(.x, "_controls"))
+  
+  # Combine results and return tidy output
+  bind_cols(
+    tibble(comparison = comparison_name),
+    res_nocontrols,
+    res_controls
+  )
 }
 
 #' Helper function to plot group means
@@ -281,3 +298,147 @@ plot_group_mean <- function(data, group_var, var_name, labels, fills, x_label) {
       legend.position = "None"
     )
 }
+
+#' Helper function to generate .tex file with regression tables
+#' 
+#' @param df Data Frame with regression results 
+#' @param caption Table caption
+#' @param label Table label
+#' @param file Name of the table output
+#' @param notes Table footnotes
+generate_latex_table <- function(df,
+                                 caption = "Caption",
+                                 label = "tab:N",
+                                 file = "table_results.tex",
+                                 notes = "The table reports the average change in inflation expectations of individuals in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from Regression type. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01.") {
+  
+  # Helper function to add significance stars
+  add_stars <- function(est, pval) {
+    stars <- ifelse(pval < 0.01, "***",
+                    ifelse(pval < 0.05, "**",
+                           ifelse(pval < 0.1, "*", "")))
+    sprintf("%.3f%s", est, stars)
+  }
+  
+  # Apply stars to estimates
+  df <- df %>%
+    dplyr::mutate(
+      est_nc = add_stars(estimate_nocontrols, p.value_nocontrols),
+      est_c  = add_stars(estimate_controls, p.value_controls)
+    )
+  
+  # Construct LaTeX table rows
+  rows <- c()
+  
+  for (comp in unique(df$comparison)) {
+    subset <- df[df$comparison == comp, ]
+    comp_name <- switch(comp,
+                        "1_vs_2" = "\\multicolumn{3}{l}{\\textbf{Relative to original COPOM statement (Treatment 1)}} \\\\",
+                        "1_vs_3" = "\\multicolumn{3}{l}{\\textbf{Relative to original COPOM statement (Treatment 1)}} \\\\",
+                        "3_vs_4" = "\\multicolumn{3}{l}{\\textbf{Relative to condensed COPOM statement (Treatment 3)}} \\\\",
+                        "2_vs_4" = "\\multicolumn{3}{l}{\\textbf{Relative to original G1 article (Treatment 2)}} \\\\",
+                        paste0("\\multicolumn{3}{l}{\\textbf{Comparison ", comp, "}} \\\\")
+    )
+    
+    rows <- c(rows, comp_name)
+    rows <- c(rows,
+              sprintf("T%s & %s & %s \\\\", 
+                      gsub(".*_vs_", "", comp),
+                      subset$est_nc,
+                      subset$est_c))
+    rows <- c(rows,
+              sprintf("& (%.3f) & (%.3f) \\\\", 
+                      subset$std.error_nocontrols,
+                      subset$std.error_controls),
+              "\\midrule")
+  }
+  
+  body <- paste(rows, collapse = "\n")
+  
+  latex <- sprintf("
+\\begin{table}[H]
+\\centering
+\\caption{%s}
+\\label{%s}
+\\begin{tabular}{lcc}
+\\toprule
+\\textbf{} & \\multicolumn{2}{c}{\\textbf{Inflation Expectations}}\\\\ 
+\\cmidrule(lr){2-3}
+& (1) & (2) \\\\ 
+\\midrule
+%s
+Demographic Controls & No & Yes \\\\
+Remove Outliers & Yes & Yes \\\\
+\\bottomrule
+\\end{tabular}
+\\begin{minipage}{\\textwidth}
+    {\\fontsize{8}{8}\\selectfont\\textit{Notes:} %s}
+\\end{minipage}
+\\end{table}", caption, label, body, notes)
+  
+  # Write to file
+  writeLines(latex, file)
+  message("✅ LaTeX table written to: ", normalizePath(file))
+  
+  invisible(latex)
+}
+
+#' Helper function to generate .tex file with Descriptive Statistics table
+#' 
+#' @param df Data frame with table 
+#' @param caption Table caption
+#' @param label Table label
+#' @param file Name of the table output
+#' @param notes Table footnotes
+generate_descriptive_table <- function(df,
+                                       caption = "Descriptive Statistics",
+                                       label = "tab:1",
+                                       file = "table_descriptive.tex",
+                                       notes = "The table reports the mean and standard deviation (in parenthesis) for the demographics as well as the prior beliefs about the economy of the subjects in each treatment group. Household Income is the mean household income of the subjects' self reported neighborhood of residence. Trust in the Central Bank refers to trust in the BCB to care about the economic well-being of all Brazilians. The final column displays the p-values from a one-way Analysis of Variance (ANOVA) test, which compares the means across groups to verify whether they are significantly different.") {
+  # Normalize column names to lowercase
+  names(df) <- tolower(names(df))
+  
+  # Helper to format mean (sd)
+  fmt <- function(mean, sd) sprintf("%.2f (%.2f)", mean, sd)
+  
+  # Build each row
+  rows <- apply(df, 1, function(x) {
+    sprintf("%s & %s & %s & %s & %s & %s & %.3f\\\\\n\\addlinespace",
+            gsub("_", " ", x["variable"]),  # prettify variable names
+            fmt(as.numeric(x["x1_mean"]), as.numeric(x["x1_sd"])),
+            fmt(as.numeric(x["x2_mean"]), as.numeric(x["x2_sd"])),
+            fmt(as.numeric(x["x3_mean"]), as.numeric(x["x3_sd"])),
+            fmt(as.numeric(x["x4_mean"]), as.numeric(x["x4_sd"])),
+            fmt(as.numeric(x["total_mean"]), as.numeric(x["total_sd"])),
+            as.numeric(x["p_value"]))
+  })
+  
+  body <- paste(rows, collapse = "\n")
+  
+  # LaTeX structure
+  latex <- sprintf("
+\\begin{table}[!h]
+\\centering
+\\caption{%s}
+\\label{%s}
+\\resizebox{\\ifdim\\width>\\linewidth\\linewidth\\else\\width\\fi}{!}{
+\\begin{tabular}[t]{llllllr}
+\\toprule
+Variable & Group 1 & Group 2 & Group 3 & Group 4 & Total & p-value\\\\
+\\midrule
+%s
+\\bottomrule
+\\end{tabular}}
+\\begin{minipage}{\\textwidth}
+    {\\fontsize{8}{8}\\selectfont\\textit{Notes:} %s}
+\\end{minipage}
+\\end{table}
+", caption, label, body, notes)
+  
+  # Save file
+  writeLines(latex, file)
+  message("✅ LaTeX table written to: ", normalizePath(file))
+  
+  invisible(latex)
+}
+

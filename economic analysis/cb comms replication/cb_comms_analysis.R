@@ -2,8 +2,6 @@ rm(list = ls())
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
-set.seed(1331)
-
 source("cb_comms_functions.R")
 
 #***************************************************************************************************
@@ -32,11 +30,6 @@ comparisons <- list(
   "3_vs_4" = list(group_var = "group_4", groups = c(3, 4))
 )
 
-formulas <- list(
-  "NoControls" = ~ .x ~ group_var_placeholder,
-  "WithControls" = ~ .x ~ group_var_placeholder + age + male + proxy_household_income + studied_economics
-)
-
 
 #***************************************************************************************************
 # TABLES ####
@@ -46,6 +39,8 @@ formulas <- list(
 
 descriptive_stats <- calc_stats(df %>% dplyr::filter(attention_check==1),columns,group_var)
 
+generate_descriptive_table(
+  descriptive_stats)
 
 #### Table 3 ####
 
@@ -54,12 +49,28 @@ table_3 <- map_dfr(names(comparisons), function(name) {
   run_models(df, comp$groups, comp$group_var, name)
 })
 
+generate_latex_table(
+  table_3,
+  caption = "Average Response to Treatments",
+  label = "tab:3",
+  file = "table_3.tex",
+  notes = "The table reports the average change in inflation expectations of individuals in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from a Huber regression. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01."
+)
+
 #### Table A.1 ####
 
 table_a1 <- map_dfr(names(comparisons), function(name) {
   comp <- comparisons[[name]]
   run_models_ols(df, comp$groups, comp$group_var, name)
 })
+
+generate_latex_table(
+  table_a1,
+  caption = "Average Response to Treatments, OLS Regression",
+  label = "tab:a1",
+  file = "table_a1.tex",
+  notes = "The table reports the average change in inflation expectations of individuals in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from OLS Regression. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01."
+)
 
 #### Table A.2 ####
 
@@ -68,6 +79,14 @@ table_a2 <- map_dfr(names(comparisons), function(name) {
   run_models_median(df, comp$groups, comp$group_var, name)
 })
 
+generate_latex_table(
+  table_a2,
+  caption = "Average Response to Treatments, Median Regression",
+  label = "tab:a2",
+  file = "table_a2.tex",
+  notes = "The table reports the average change in inflation expectations of individuals in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from Median regressions. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01."
+)
+
 #### Table A.3 ####
 
 table_a3 <- map_dfr(names(comparisons), function(name) {
@@ -75,12 +94,28 @@ table_a3 <- map_dfr(names(comparisons), function(name) {
   run_models_trimmed(df, comp$groups, comp$group_var, name)
 })
 
+generate_latex_table(
+  table_a3,
+  caption = "Average Response to Treatments, OLS Regression, Expectation Revisions trimmed at bottom and top 10%",
+  label = "tab:a3",
+  file = "table_a3.tex",
+  notes = "The table reports the average change in inflation expectations of individuals in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from OLS regressions. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01."
+)
+
 #### Table 4 ####
 
 table_4 <- map_dfr(names(comparisons), function(name) {
   comp <- comparisons[[name]]
   run_models_probit(df, comp$groups, comp$group_var, name)
 })
+
+generate_latex_table(
+  table_4,
+  caption = "Convergence in Beliefs",
+  label = "tab:4",
+  file = "table_4.tex",
+  notes = "The table reports the probability that subjects' inflation expectation converge to the BCB's target inflation rate of 3% in each treatment group relative to those in the highlighted treatment group. Treatments are described in detail in the text. The second column uses the same specification as the first, but augmented with respondent-specific controls. Results are from Probit regressions. Robust standard errors are reported in parenthesis. * p < 0.1; ** p < 0.05; *** p < 0.01."
+)
 
 #***************************************************************************************************
 # FIGURES ####
@@ -186,7 +221,3 @@ df %>%
     axis.text.y  = element_text(color = "#0d4073"),
     axis.line.x = element_line(color = "black", linewidth = 0.6)
   )
-
-
-
-
