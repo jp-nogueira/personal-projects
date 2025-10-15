@@ -104,8 +104,6 @@ df %>%
 
 #### Figure 1 ####
 
-#### Figure 1 ####
-
 # Panel (a) #
 
 plt1 <- plot_group_mean(
@@ -188,6 +186,7 @@ df %>%
     axis.text.y  = element_text(color = "#0d4073"),
     axis.line.x = element_line(color = "black", linewidth = 0.6)
   )
+
 
 
 
