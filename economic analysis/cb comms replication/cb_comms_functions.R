@@ -14,6 +14,8 @@ installed <- require(lmtest)
 if (!installed) install.packages("lmtest")
 installed <- require(sandwich)
 if (!installed) install.packages("sandwich")
+installed <- require(quantreg)
+if (!installed) install.packages("quantreg")
 installed <- require(knitr)
 if (!installed) install.packages("knitr")
 installed <- require(texreg)
@@ -22,6 +24,8 @@ installed <- require(kableExtra)
 if (!installed) install.packages("kableExtra")
 installed <- require(paletteer)
 if (!installed) install.packages("paletteer")
+installed <- require(ggpubr)
+if (!installed) install.packages("ggpubr")
 
 #***************************************************************************************************
 # Helper functions ####
@@ -245,4 +249,35 @@ run_models_probit <- function(data, groups, group_var, comparison_name) {
   bind_cols(results) %>%
     rename_with(~ paste0(.x, c("_nocontrols", "_controls"))) %>%
     mutate(comparison = comparison_name, .before = 1)
+
+}
+
+#' Helper function to plot group means
+#' 
+#' @param data Data to plot the figure
+#' @param group_var Determines the variable which we're plotting
+#' @param labels Determines the name of the group variables
+#' @param fills Determines the colors of each group variable
+#' @param x_label Label for the X axis
+plot_group_mean <- function(data, group_var, var_name, labels, fills, x_label) {
+  intercepts <- data %>%
+    group_by({{ group_var }}) %>%
+    summarise(Intercept = coef(rlm(reformulate("1", var_name), data = cur_data()))[1]) %>%
+    mutate({{ group_var }} := factor({{ group_var }}, labels = labels))
+  
+  ggplot(intercepts, aes(x = {{ group_var }}, y = Intercept, fill = {{ group_var }})) +
+    geom_bar(stat = "identity", width = 0.6, color = "black") +
+    geom_text(aes(label = round(Intercept, 2)),
+              colour = "white", vjust = 1.5, size = 7) +
+    labs(x = x_label, y = "Mean") +
+    scale_fill_manual(values = fills) +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      panel.grid.major.y = element_line(color = "#0d4073", linewidth = 0.3),
+      axis.ticks.length = unit(0, "mm"),
+      axis.title.x = element_text(face = "bold"),
+      axis.title.y = element_text(size = 10),
+      axis.text.y  = element_text(color = "#0d4073"),
+      legend.position = "None"
+    )
 }
