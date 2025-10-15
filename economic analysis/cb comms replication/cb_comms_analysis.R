@@ -34,7 +34,7 @@ comparisons <- list(
 
 formulas <- list(
   "NoControls" = ~ .x ~ group_var_placeholder,
-  "WithControls" = ~ .x ~ group_var_placeholder + age + proxy_household_income + studied_economics
+  "WithControls" = ~ .x ~ group_var_placeholder + age + male + proxy_household_income + studied_economics
 )
 
 
@@ -130,3 +130,4 @@ ggplot(plt_df, aes(x = x, y = y)) +
   )
 
 rm(plt_df,plt_data,means)
+
