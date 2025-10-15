@@ -102,6 +102,63 @@ df %>%
         axis.text = element_text(color="black")
   )
 
+#### Figure 1 ####
+
+#### Figure 1 ####
+
+# Panel (a) #
+
+plt1 <- plot_group_mean(
+  data = df %>% filter(!is.na(male)),
+  group_var = male,
+  var_name = "elicited_12_month_ahead_expectations",
+  labels = c("Female", "Male"),
+  fills = c("#006633", "#0d4073"),
+  x_label = "Gender"
+)
+
+# Panel (b) #
+
+income_med <- quantile(df$proxy_household_income, 0.5, na.rm = TRUE)
+df <- df %>%
+  mutate(income_group = ifelse(proxy_household_income < income_med, 0, 1))
+
+plt2 <- plot_group_mean(
+  data = df %>% filter(!is.na(income_group)),
+  group_var = income_group,
+  var_name = "elicited_12_month_ahead_expectations",
+  labels = c("Bottom 50%", "Top 50%"),
+  fills = c("#006633", "#0d4073"),
+  x_label = "Income Quantile"
+)
+
+# Panel (c) #
+
+df <- df %>%
+  mutate(FL_group = ifelse(financial_literacy < 2, 0, 1))
+
+plt3 <- plot_group_mean(
+  data = df %>% filter(!is.na(FL_group)),
+  group_var = FL_group,
+  var_name = "elicited_12_month_ahead_expectations",
+  labels = c("Under 2", "2 or higher"),
+  fills = c("#006633", "#0d4073"),
+  x_label = "Financial Literacy Score"
+)
+
+# Panel (d) #
+
+
+# Arranging all plots #
+
+ggarrange(
+  plt1, plt2, plt3,
+  labels = c("(a)", "(b)", "(c)"),
+  font.label = list(size = 10, color = "black"),
+  label.x = 0.5,
+  nrow = 2, ncol = 2
+)
+
 #### Figure 4 ####
 
 df %>%
@@ -131,5 +188,6 @@ df %>%
     axis.text.y  = element_text(color = "#0d4073"),
     axis.line.x = element_line(color = "black", linewidth = 0.6)
   )
+
 
 
