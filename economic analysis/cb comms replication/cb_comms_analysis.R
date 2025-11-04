@@ -11,7 +11,7 @@ source("cb_comms_functions.R")
 df <- readRDS("Data.rds")
 
 #***************************************************************************************************
-# REGRESSION SPECIFICATIONS ####
+# PRESET SPECIFICATIONS ####
 #***************************************************************************************************
 
 # descriptive statistics specifications
@@ -123,7 +123,7 @@ generate_latex_table(
 
 #### Figure A1 #####
 
-df %>%
+plt_a1 <- df %>%
   filter(attention_check==1) %>%
   ggplot(aes(x=delta_expectations,group = treatment_group,fill=as.factor(treatment_group))) +
   geom_density(adjust=1.5,alpha=0.8) +
@@ -136,12 +136,94 @@ df %>%
         legend.position = c(0.8,0.8),
         axis.text = element_text(color="black")
   )
+ggsave(plt_a1,filename="figures/figure_a1.png",device = "png")
 
 #### Figure 1 ####
 
 # Panel (a) #
+# Data retrieved from the BCB: https://www.bcb.gov.br/content/controleinflacao/focusdistribuicoesfrequencia/P20241202-Focus-Distribuicoes-de-frequencia.pdf #
 
-plt1 <- plot_group_mean(
+focus_data <- data.frame(
+  class_start = c(2.70, 3.24, 3.78, 4.32, 4.86, 5.40, 5.94, 6.48),
+  class_end = c(3.24, 3.78, 4.32, 4.86, 5.40, 5.94, 6.48, 7.02),
+  percent = c(0.0, 7.2, 36.2, 34.9, 12.5, 8.6, 0.7, 0.0)
+)
+
+plt_1_a <- ggplot(focus_data, aes(x = class_start, y = percent)) +
+  geom_histogram(
+    stat = "identity",
+    aes(width = class_end - class_start),
+    fill = "#0d4073",
+    alpha = 1,
+    color = "black"
+  ) +
+  labs(
+    title = " ",
+    x = "Intervals",
+    y = "Relative Frequency (%)"
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major.y = element_line(color = "#0d4073", linewidth = 0.3),
+    axis.ticks.length = unit(0, "mm"),
+    axis.text.x = element_text(angle = 45, hjust = 1,color = "#0d4073"),
+    axis.title.x = element_text(face = "bold"),
+    axis.title.y = element_text(size = 10),
+    axis.text.y  = element_text(color = "#0d4073"),
+    legend.position = "None"
+  ) +
+  scale_x_continuous(
+    breaks = focus_data$class_start,
+    labels = paste(focus_data$class_start, focus_data$class_end, sep = "-")
+  ) +
+  scale_y_continuous(breaks = seq(0, 40, by = 5))
+
+ggsave(plt_1_a,filename="figures/figure_1_panel_a.png",device="png")
+
+# Panel (b) #
+
+plot_df <- prepare_histogram(df,
+                             var = "elicited_12_month_ahead_expectations",
+                             orig_breaks = focus_data$class_start,
+                             min_val = 0,
+                             max_val = 10)
+
+plt_1_b <- ggplot(plot_df, aes(x = class_start, y = percent)) +
+  geom_histogram(
+    stat = "identity",
+    aes(width = class_end - class_start),
+    fill = "#0d4073",
+    alpha = 1,
+    color = "black"
+  ) +
+  labs(
+    title = "",
+    x = "Intervals",
+    y = "Relative Frequency (%)"
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major.y = element_line(color = "#0d4073", linewidth = 0.3),
+    axis.ticks.length = unit(0, "mm"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "#0d4073"),
+    axis.title.x = element_text(face = "bold"),
+    axis.title.y = element_text(size = 10),
+    axis.text.y = element_text(color = "#0d4073"),
+    legend.position = "None"
+  ) +
+  scale_x_continuous(
+    breaks = plot_df$class_start,
+    labels = paste(plot_df$class_start, plot_df$class_end, sep = "-")
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 12, by = 2)
+  )
+
+ggsave(plt_1_b,filename="figures/figure_1_panel_b.png",device="png")
+
+# Panel (c) #
+
+plt_1_c <- plot_group_mean(
   data = df %>% filter(!is.na(male)),
   group_var = male,
   var_name = "elicited_12_month_ahead_expectations",
@@ -150,13 +232,15 @@ plt1 <- plot_group_mean(
   x_label = "Gender"
 )
 
-# Panel (b) #
+ggsave(plt_1_c,filename="figures/figure_1_panel_c.png",device="png")
+
+# Panel (d) #
 
 income_med <- quantile(df$proxy_household_income, 0.5, na.rm = TRUE)
 df <- df %>%
   mutate(income_group = ifelse(proxy_household_income < income_med, 0, 1))
 
-plt2 <- plot_group_mean(
+plt_1_d <- plot_group_mean(
   data = df %>% filter(!is.na(income_group)),
   group_var = income_group,
   var_name = "elicited_12_month_ahead_expectations",
@@ -165,36 +249,33 @@ plt2 <- plot_group_mean(
   x_label = "Income Quantile"
 )
 
-# Panel (c) #
+ggsave(plt_1_d,filename="figures/figure_1_panel_d.png",device="png")
+
+# Panel (e) #
 
 df <- df %>%
-  mutate(FL_group = ifelse(financial_literacy < 2, 0, 1))
+  mutate(FL_group = financial_literacy< quantile(financial_literacy,0.5,na.rm = T))
 
-plt3 <- plot_group_mean(
+plt_1_e <- plot_group_mean(
   data = df %>% filter(!is.na(FL_group)),
   group_var = FL_group,
   var_name = "elicited_12_month_ahead_expectations",
-  labels = c("Under 2", "2 or higher"),
+  labels = c("Bottom 50%", "Top 50%"),
   fills = c("#006633", "#0d4073"),
   x_label = "Financial Literacy Score"
 )
 
-# Panel (d) #
+ggsave(plt_1_e,filename="figures/figure_1_panel_e.png",device="png")
 
+# Panel (f) #
 
-# Arranging all plots #
+plt_1_f <- plot_expectations_vs_inflation(df)
 
-ggarrange(
-  plt1, plt2, plt3,
-  labels = c("(a)", "(b)", "(c)"),
-  font.label = list(size = 10, color = "black"),
-  label.x = 0.5,
-  nrow = 2, ncol = 2
-)
+ggsave(plt_1_f,filename="figures/figure_1_panel_f.png",device="png")
 
 #### Figure 4 ####
 
-df %>%
+plt_4 <- df %>%
   dplyr::select(c(6:10)) %>%
   summarise(across(everything(), mean)) %>%
   pivot_longer(everything(),
@@ -221,3 +302,7 @@ df %>%
     axis.text.y  = element_text(color = "#0d4073"),
     axis.line.x = element_line(color = "black", linewidth = 0.6)
   )
+
+ggsave(plt_4, filename="figures/figure_4.png",device = "png")
+
+

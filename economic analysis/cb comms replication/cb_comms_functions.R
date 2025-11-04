@@ -16,10 +16,12 @@ installed <- require(sandwich)
 if (!installed) install.packages("sandwich")
 installed <- require(quantreg)
 if (!installed) install.packages("quantreg")
-installed <- require(knitr)
+installed <- require(paletteer)
 if (!installed) install.packages("paletteer")
 installed <- require(ggpubr)
 if (!installed) install.packages("ggpubr")
+installed <- require(rlang)
+if (!installed) install.packages("rlang")
 
 
 #***************************************************************************************************
@@ -269,6 +271,58 @@ run_models_probit <- function(data, groups, group_var, comparison_name) {
   )
 }
 
+#' Helper function to prepare data to be ploted as a histogram
+#' 
+#' @param df Data to be prepared
+#' @param var Variable whose frequency we wish to determine
+#' @param orig_breaks Original breaks from panel (a) figure (to keep both figures consistent)
+#' @param min_val Minimum value for the X-axis
+#' @param max_value Maximum value for the X-axis 
+prepare_histogram <- function(df,
+                              var = "elicited_12_month_ahead_expectations",
+                              orig_breaks,
+                              min_val = -14,
+                              max_val = 14) {
+  # --- 1. Compute interval width from original breaks ---
+  w <- orig_breaks[2] - orig_breaks[1]
+  
+  # --- 2. Extend breaks to cover full range while staying aligned ---
+  k <- ceiling((orig_breaks[1] - min_val) / w)
+  first_break <- orig_breaks[1] - k * w
+  n_steps <- ceiling((max_val - first_break) / w)
+  breaks_ext <- seq(from = first_break, by = w, length.out = n_steps + 1)
+  
+  # --- 3. Filter data ---
+  filtered_df <- df %>%
+    filter(
+      .data[["attention_check"]] == 1,
+      !is.na(.data[[var]])
+    )
+  
+  # --- 4. Count observations per bin ---
+  bins_factor <- cut(filtered_df[[var]],
+                     breaks = breaks_ext,
+                     right = FALSE,
+                     include.lowest = TRUE)
+  
+  counts <- as.integer(table(bins_factor))
+  percent <- counts / sum(counts) * 100
+  
+  # --- 5. Assemble plotting data frame ---
+  plot_df <- data.frame(
+    class_start = breaks_ext[-length(breaks_ext)],
+    class_end = breaks_ext[-1],
+    n = counts,
+    percent = percent
+  )
+  
+  plot_df <- plot_df %>%
+    mutate(across(c(class_start, class_end, percent), ~ round(., 2)))
+  
+  invisible(plot_df)
+  
+}
+
 #' Helper function to plot group means
 #' 
 #' @param data Data to plot the figure
@@ -277,16 +331,31 @@ run_models_probit <- function(data, groups, group_var, comparison_name) {
 #' @param fills Determines the colors of each group variable
 #' @param x_label Label for the X axis
 plot_group_mean <- function(data, group_var, var_name, labels, fills, x_label) {
+  # Compute robust means per group (using rlm on a constant)
   intercepts <- data %>%
     group_by({{ group_var }}) %>%
     summarise(Intercept = coef(rlm(reformulate("1", var_name), data = cur_data()))[1]) %>%
     mutate({{ group_var }} := factor({{ group_var }}, labels = labels))
   
-  ggplot(intercepts, aes(x = {{ group_var }}, y = Intercept, fill = {{ group_var }})) +
-    geom_bar(stat = "identity", width = 0.6, color = "black") +
-    geom_text(aes(label = round(Intercept, 2)),
-              colour = "white", vjust = 1.5, size = 7) +
-    labs(x = x_label, y = "Mean") +
+  # Plot violins + robust mean lines
+  ggplot(data, aes(x = factor({{ group_var }}, labels = labels),
+                   y = .data[[var_name]],
+                   fill = factor({{ group_var }}, labels = labels))) +
+    geom_violin(trim = FALSE, color = "black", alpha = 0.7) +
+    
+    # Add robust mean line for each group
+    geom_segment(data = intercepts,
+                 aes(x = as.numeric({{ group_var }}) - 0.3,
+                     xend = as.numeric({{ group_var }}) + 0.3,
+                     y = Intercept, yend = Intercept),
+                 color = "white", linewidth = 1.2, linetype = "dashed") +
+    
+    # Add text labels above the line
+    geom_text(data = intercepts,
+              aes(x = {{ group_var }}, y = Intercept, label = round(Intercept, 2)),
+              vjust = -1.2, color = "white", size = 5, fontface = "bold") +
+    
+    labs(x = x_label, y = "Value") +
     scale_fill_manual(values = fills) +
     theme(
       panel.background = element_rect(fill = "white"),
@@ -298,6 +367,77 @@ plot_group_mean <- function(data, group_var, var_name, labels, fills, x_label) {
       legend.position = "None"
     )
 }
+
+#' Helper function to plot binned scatterplot 
+#' 
+#' @param df Data Frame with regression results 
+#' @param x_var X-axis variable
+#' @param y_var Y-axis variable
+#' @param bins Number of bins
+#' @param title Plot title
+#' @param x_label X-axis label
+#' @param y_label Y-axis label
+plot_expectations_vs_inflation <- function(df,
+                                           x_var = past_12_month_inflation,
+                                           y_var = elicited_12_month_ahead_expectations,
+                                           bins = 12,
+                                           title = " ",
+                                           x_label = "Perceived Inflation, %",
+                                           y_label = "Expected Inflation, %") {
+  # Variables and names
+  xq <- enquo(x_var)
+  yq <- enquo(y_var)
+  x_name <- as_name(xq)
+  y_name <- as_name(yq)
+  
+  # Filtering data
+  df_filt <- df %>%
+    filter(
+      !is.na(.data[[x_name]]),
+      !is.na(.data[[y_name]]),
+      attention_check == 1,
+      .data[[x_name]] > -2,
+      .data[[x_name]] < 12,
+      .data[[y_name]] > -2,
+      .data[[y_name]] < 12
+    )
+  
+  # Formula for regressions
+  frm <- as.formula(paste0(y_name, " ~ ", x_name))
+  
+  # Regressions
+  m7 <- rlm(frm, data = df_filt)
+  ols <- lm(frm, data = df_filt)
+  
+  # R-squared
+  r2_val <- summary(ols)$r.squared
+  r2_label <- bquote(R^2 == .(round(r2_val, 2)))
+  
+  # Data for the plot
+  plt_df <- df_filt %>%
+    mutate(predicted = predict(m7))
+  
+  # Plots the bin scatter
+  p <- ggplot(plt_df, aes(x = !!xq, y = !!yq)) +
+    stat_summary_bin(fun = mean, bins = bins, geom = "point", color = "#0d4073", size = 2) +
+    geom_line(aes(y = predicted), color = "#d40000", size = 1) +
+    annotate("text", x = Inf, y = -Inf, label = as.expression(r2_label),
+             hjust = 1.1, vjust = -1.2, size = 4, color = "#d40000", parse = TRUE) +
+    scale_x_continuous(breaks = seq(-2, 12, by = 2), labels = function(x) round(x, 1)) +
+    scale_y_continuous(breaks = seq(-2, 12, by = 2), labels = function(y) round(y, 1)) +
+    labs(title = title, x = x_label, y = y_label) +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      panel.grid.major.y = element_line(color = "lightgrey", linewidth = 0.1),
+      axis.line.x = element_line(color = "black", linewidth = 0.6),
+      axis.line.y = element_line(color = "black", linewidth = 0.6),
+      axis.ticks = element_line(color = "black"),
+      axis.text = element_text(color = "black")
+    )
+  
+  p
+}
+
 
 #' Helper function to generate .tex file with regression tables
 #' 
